@@ -23,23 +23,62 @@ app.post('/api/analyze-image', async (c) => {
       return c.json({ error: '画像URLが必要です' }, 400)
     }
 
-    // 画像を取得
-    const imageResponse = await fetch(imageUrl)
-    const imageBlob = await imageResponse.blob()
-    const imageBuffer = await imageBlob.arrayBuffer()
-    const imageArray = Array.from(new Uint8Array(imageBuffer))
+    // Gemini API を使用して画像を解析
+    const GEMINI_API_KEY = 'AIzaSyBq-5l_LLS7yjIkkTs8kytVPLzKsLT0vH0'
+    
+    // Data URLの場合は直接使用、通常のURLの場合は取得
+    let base64Image = imageUrl
+    if (!imageUrl.startsWith('data:')) {
+      const imageResponse = await fetch(imageUrl)
+      const imageBlob = await imageResponse.blob()
+      const imageBuffer = await imageBlob.arrayBuffer()
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)))
+      base64Image = `data:${imageBlob.type};base64,${base64}`
+    }
 
-    // Cloudflare AI で画像を解析
-    const response = await c.env.AI.run('@cf/llava-hf/llava-1.5-7b-hf', {
-      image: imageArray,
-      prompt: 'この教科書の内容を詳細に読み取ってください。テキスト、図、表など全ての情報を抽出してください。',
-      max_tokens: 512
-    })
+    // data:image/png;base64, の部分を削除
+    const base64Data = base64Image.split(',')[1]
+    const mimeType = base64Image.split(';')[0].split(':')[1]
 
-    return c.json({ 
-      success: true,
-      text: response.description || ''
-    })
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              {
+                text: 'この教科書・テキストの内容を詳細に読み取ってください。画像内のすべてのテキスト、図、表、数式などの情報を抽出してください。日本語のテキストはそのまま日本語で、英語のテキストはそのまま英語で出力してください。'
+              },
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Data
+                }
+              }
+            ]
+          }]
+        })
+      }
+    )
+
+    const data = await response.json()
+    
+    if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+      const extractedText = data.candidates[0].content.parts[0].text
+      return c.json({ 
+        success: true,
+        text: extractedText
+      })
+    } else {
+      return c.json({ 
+        error: '画像からテキストを抽出できませんでした',
+        details: JSON.stringify(data)
+      }, 500)
+    }
   } catch (error) {
     console.error('画像解析エラー:', error)
     return c.json({ 
@@ -132,29 +171,48 @@ JSON形式で以下のように出力してください：
         return c.json({ error: '無効な問題タイプです' }, 400)
     }
 
-    // Cloudflare AI で問題を生成
-    const response = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [
-        { role: 'system', content: 'あなたは教育用の問題作成アシスタントです。' },
-        { role: 'user', content: prompt }
-      ]
-    })
-
-    let generatedText = response.response || ''
+    // Gemini API で問題を生成
+    const GEMINI_API_KEY = 'AIzaSyBq-5l_LLS7yjIkkTs8kytVPLzKsLT0vH0'
     
-    // JSONを抽出
-    const jsonMatch = generatedText.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const quizData = JSON.parse(jsonMatch[0])
-      return c.json({ 
-        success: true,
-        quiz: quizData
-      })
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `あなたは教育用の問題作成アシスタントです。\n\n${prompt}\n\n必ずJSON形式のみで出力してください。他の説明文は不要です。`
+            }]
+          }]
+        })
+      }
+    )
+
+    const data = await response.json()
+    
+    if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+      let generatedText = data.candidates[0].content.parts[0].text
+      
+      // ```json ``` で囲まれている場合は除去
+      generatedText = generatedText.replace(/```json\n?/g, '').replace(/```\n?/g, '')
+      
+      // JSONを抽出
+      const jsonMatch = generatedText.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const quizData = JSON.parse(jsonMatch[0])
+        return c.json({ 
+          success: true,
+          quiz: quizData
+        })
+      }
     }
 
     return c.json({ 
       error: '問題生成に失敗しました',
-      raw: generatedText
+      raw: data
     }, 500)
     
   } catch (error) {
@@ -189,26 +247,48 @@ JSON形式で以下のように出力してください：
   "feedback": "フィードバック"
 }`
 
-    const response = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [
-        { role: 'system', content: 'あなたは教育用の採点アシスタントです。' },
-        { role: 'user', content: prompt }
-      ]
-    })
-
-    let generatedText = response.response || ''
-    const jsonMatch = generatedText.match(/\{[\s\S]*\}/)
+    // Gemini API で採点
+    const GEMINI_API_KEY = 'AIzaSyBq-5l_LLS7yjIkkTs8kytVPLzKsLT0vH0'
     
-    if (jsonMatch) {
-      const result = JSON.parse(jsonMatch[0])
-      return c.json({ 
-        success: true,
-        result
-      })
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `あなたは教育用の採点アシスタントです。\n\n${prompt}\n\n必ずJSON形式のみで出力してください。他の説明文は不要です。`
+            }]
+          }]
+        })
+      }
+    )
+
+    const data = await response.json()
+    
+    if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+      let generatedText = data.candidates[0].content.parts[0].text
+      
+      // ```json ``` で囲まれている場合は除去
+      generatedText = generatedText.replace(/```json\n?/g, '').replace(/```\n?/g, '')
+      
+      const jsonMatch = generatedText.match(/\{[\s\S]*\}/)
+      
+      if (jsonMatch) {
+        const result = JSON.parse(jsonMatch[0])
+        return c.json({ 
+          success: true,
+          result
+        })
+      }
     }
 
     return c.json({ 
-      error: '採点に失敗しました'
+      error: '採点に失敗しました',
+      raw: data
     }, 500)
     
   } catch (error) {
