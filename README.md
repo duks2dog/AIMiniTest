@@ -1,21 +1,121 @@
-```txt
+# 教科書クイズ生成アプリ
+
+## プロジェクト概要
+- **名前**: 教科書クイズ生成アプリ
+- **目標**: テキストブックの画像をAIで解析し、自動的に小テスト問題を生成
+- **主な機能**:
+  - 画像アップロードと自動OCR（AI画像認識）
+  - 4種類の問題タイプ（単語、語順並べ替え、翻訳、読み当て）
+  - AIによる自動問題生成
+  - AIによる柔軟な解答採点とフィードバック
+
+## 完成済み機能
+✅ 画像アップロード機能（URL入力・ファイル選択対応）
+✅ Cloudflare AI による画像解析・テキスト抽出
+✅ 4種類のクイズ自動生成機能
+  - 単語問題（重要単語の意味を問う4択）
+  - 語順並べ替え問題
+  - 翻訳問題（日本語⇔英語）
+  - 読み当て問題（発音・アクセント）
+✅ AIによる解答チェック・採点機能
+✅ リアルタイムプレビュー
+✅ レスポンシブUI（TailwindCSS使用）
+
+## URL
+- **開発環境**: https://3000-id8npc2uxau5gd0mwfie7-5634da27.sandbox.novita.ai
+- **GitHub**: （未設定）
+
+## データアーキテクチャ
+- **データモデル**: 
+  - 画像解析結果（抽出テキスト）
+  - クイズデータ（問題、選択肢、正解、解説）
+  - 採点結果（正誤、スコア、フィードバック）
+- **ストレージサービス**: 
+  - Cloudflare AI (@cf/llava-hf/llava-1.5-7b-hf for 画像認識)
+  - Cloudflare AI (@cf/meta/llama-3.1-8b-instruct for 問題生成・採点)
+- **データフロー**: 
+  1. 画像アップロード → AI画像解析 → テキスト抽出
+  2. テキスト → AI問題生成 → クイズ表示
+  3. ユーザー解答 → AI採点 → 結果表示
+
+## ユーザーガイド
+
+### 使い方
+1. **画像をアップロード**: 
+   - 画像URLを入力するか、ファイルを選択
+   - 「画像を解析」ボタンをクリック
+
+2. **問題タイプを選択**: 
+   - 単語問題（重要単語の意味）
+   - 語順並べ替え（文章の単語を並べ替え）
+   - 翻訳問題（日英翻訳）
+   - 読み当て問題（発音・アクセント）
+
+3. **問題に解答**: 
+   - 問題が自動生成されるので解答を入力
+   - 「解答を提出」で採点
+
+4. **結果確認**: 
+   - AIが柔軟に採点してフィードバックを提供
+   - 「別の問題を生成」で新しい問題にチャレンジ
+
+### 対応画像形式
+- JPEG, PNG, GIF, WebP など一般的な画像形式
+- テキストが鮮明に読める画像を推奨
+
+## デプロイメント
+- **プラットフォーム**: Cloudflare Pages
+- **ステータス**: ✅ 開発環境で動作中
+- **技術スタック**: 
+  - バックエンド: Hono + TypeScript
+  - フロントエンド: Vanilla JS + TailwindCSS
+  - AI: Cloudflare AI (LLaVA 1.5 + Llama 3.1)
+- **最終更新**: 2025-11-05
+
+## 未実装機能
+- クイズ履歴の保存（D1/KVストレージ）
+- ユーザーアカウント機能
+- 問題の難易度調整
+- マルチ言語対応の拡張
+- 音声読み上げ機能
+
+## 推奨される次のステップ
+1. ✅ **完了**: ローカル開発環境での動作確認
+2. 📋 **提案**: Cloudflare Pagesへの本番デプロイ
+3. 📋 **提案**: D1データベースを使ったクイズ履歴機能の追加
+4. 📋 **提案**: 問題生成の精度向上（プロンプトの最適化）
+5. 📋 **提案**: GitHubリポジトリへのプッシュ
+
+## ローカル開発
+
+### セットアップ
+```bash
 npm install
-npm run dev
+npm run build
 ```
 
-```txt
-npm run deploy
+### 開発サーバー起動
+```bash
+# PM2で起動（推奨）
+pm2 start ecosystem.config.cjs
+
+# または直接実行
+npm run dev:sandbox
 ```
 
-[For generating/synchronizing types based on your Worker configuration run](https://developers.cloudflare.com/workers/wrangler/commands/#types):
+### ビルド＆デプロイ
+```bash
+# ビルド
+npm run build
 
-```txt
-npm run cf-typegen
+# Cloudflare Pagesにデプロイ
+npm run deploy:prod
 ```
 
-Pass the `CloudflareBindings` as generics when instantiation `Hono`:
+## 技術的な注意事項
+- Cloudflare AI バインディングが必要（wrangler.jsonc で設定済み）
+- ローカル開発ではモックAIレスポンスは使用されないため、実際のCloudflare環境が必要
+- 本番環境では画像URLは公開アクセス可能である必要があります
 
-```ts
-// src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
-```
+## ライセンス
+MIT
