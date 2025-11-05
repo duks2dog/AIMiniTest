@@ -4,7 +4,10 @@ let currentQuizType = '';
 let currentQuiz = null;
 
 // DOM要素の取得
-const textInput = document.getElementById('text-input');
+const imageFileInput = document.getElementById('image-file');
+const imageUrlInput = document.getElementById('image-url');
+const imagePreview = document.getElementById('image-preview');
+const previewImg = document.getElementById('preview-img');
 const analyzeBtn = document.getElementById('analyze-btn');
 const quizTypeSection = document.getElementById('quiz-type-section');
 const extractedTextEl = document.getElementById('extracted-text');
@@ -25,22 +28,73 @@ function hideLoading() {
     loading.classList.add('hidden');
 }
 
-// テキスト入力から問題作成
-analyzeBtn.addEventListener('click', async () => {
-    const text = textInput.value.trim();
-    
-    if (!text) {
-        alert('テキストを入力してください');
-        return;
+// 画像プレビュー
+imageFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            previewImg.src = event.target.result;
+            imagePreview.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
     }
-    
-    extractedText = text;
-    extractedTextEl.textContent = extractedText;
-    quizTypeSection.classList.remove('hidden');
-    
-    // スクロール
-    quizTypeSection.scrollIntoView({ behavior: 'smooth' });
 });
+
+imageUrlInput.addEventListener('input', (e) => {
+    const url = e.target.value;
+    if (url) {
+        previewImg.src = url;
+        imagePreview.classList.remove('hidden');
+    }
+});
+
+// 画像解析
+analyzeBtn.addEventListener('click', async () => {
+    let imageUrl = imageUrlInput.value.trim();
+    
+    // ファイルがアップロードされている場合
+    if (imageFileInput.files[0]) {
+        const file = imageFileInput.files[0];
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            imageUrl = event.target.result;
+            await analyzeImage(imageUrl);
+        };
+        reader.readAsDataURL(file);
+    } else if (imageUrl) {
+        await analyzeImage(imageUrl);
+    } else {
+        alert('画像ファイルを選択するか、URLを入力してください');
+    }
+});
+
+async function analyzeImage(imageUrl) {
+    try {
+        showLoading();
+        
+        const response = await axios.post('/api/analyze-image', {
+            imageUrl: imageUrl
+        });
+        
+        hideLoading();
+        
+        if (response.data.success) {
+            extractedText = response.data.text;
+            extractedTextEl.textContent = extractedText;
+            quizTypeSection.classList.remove('hidden');
+            
+            // スクロール
+            quizTypeSection.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            alert('画像解析に失敗しました: ' + response.data.error);
+        }
+    } catch (error) {
+        hideLoading();
+        console.error('エラー:', error);
+        alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+    }
+}
 
 // 問題タイプ選択
 document.querySelectorAll('.quiz-type-btn').forEach(btn => {

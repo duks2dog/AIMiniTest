@@ -15,19 +15,41 @@ app.use('/api/*', cors())
 // 静的ファイルの配信
 app.use('/static/*', serveStatic({ root: './public' }))
 
-// 画像解析API - テキストを直接受け取る
+// 画像解析API - GenSpark AI Drive の画像理解機能を使用
 app.post('/api/analyze-image', async (c) => {
   try {
-    const { text } = await c.req.json()
+    const { imageUrl } = await c.req.json()
     
-    if (!text) {
-      return c.json({ error: 'テキストが必要です' }, 400)
+    if (!imageUrl) {
+      return c.json({ error: '画像URLが必要です' }, 400)
     }
 
-    return c.json({ 
-      success: true,
-      text: text
+    // GenSpark understand_images API を呼び出し
+    const apiResponse = await fetch('https://api.genspark.ai/v1/understand_images', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        image_urls: [imageUrl],
+        instruction: 'この教科書・テキストブックの画像から、すべてのテキスト内容を正確に読み取ってください。日本語はそのまま日本語で、英語はそのまま英語で抽出してください。図や表の説明も含めてください。',
+        model: 'gemini-flash'
+      })
     })
+
+    const data = await apiResponse.json()
+    
+    if (data && data.result) {
+      return c.json({ 
+        success: true,
+        text: data.result
+      })
+    } else {
+      return c.json({ 
+        error: '画像からテキストを抽出できませんでした',
+        details: JSON.stringify(data)
+      }, 500)
+    }
   } catch (error) {
     console.error('画像解析エラー:', error)
     return c.json({ 
@@ -37,7 +59,7 @@ app.post('/api/analyze-image', async (c) => {
   }
 })
 
-// シンプルな問題生成（ルールベース）
+// AI問題生成 - GenSpark AI を使用
 app.post('/api/generate-quiz', async (c) => {
   try {
     const { text, quizType } = await c.req.json()
@@ -46,75 +68,123 @@ app.post('/api/generate-quiz', async (c) => {
       return c.json({ error: 'テキストと問題タイプが必要です' }, 400)
     }
 
-    // 文章を分割
-    const sentences = text.split(/[.。！？!?]/).filter(s => s.trim().length > 5).slice(0, 5)
-    const words = text.split(/[\s\n,、]+/).filter(w => w.length > 2).slice(0, 10)
-    
-    let quizData = { questions: [] }
+    let prompt = ''
     
     switch (quizType) {
       case 'vocabulary':
-        // 単語問題（シンプル版）
-        quizData.questions = words.slice(0, 3).map(word => ({
-          word: word,
-          options: [
-            `${word}の意味1`,
-            `${word}の意味2`,
-            `${word}の意味3`,
-            `${word}の意味4`
-          ],
-          correct: 0,
-          explanation: `${word}は重要な単語です`
-        }))
+        prompt = `以下のテキストから重要な単語を3つ抽出し、それぞれの意味を問う4択問題を作成してください。
+
+テキスト: ${text}
+
+必ずJSON形式のみで以下のように出力してください。他の説明は不要です：
+{
+  "questions": [
+    {
+      "word": "単語",
+      "options": ["正解の意味", "不正解1", "不正解2", "不正解3"],
+      "correct": 0,
+      "explanation": "この単語の意味と使い方の説明"
+    }
+  ]
+}`
         break
         
       case 'word-order':
-        // 語順並べ替え
-        quizData.questions = sentences.slice(0, 3).map(sentence => {
-          const trimmed = sentence.trim()
-          const wordList = trimmed.split(/\s+/)
-          const shuffled = [...wordList].sort(() => Math.random() - 0.5)
-          return {
-            original: trimmed,
-            shuffled: shuffled,
-            answer: trimmed,
-            explanation: `正しい語順は「${trimmed}」です`
-          }
-        })
+        prompt = `以下のテキストから文章を3つ選び、語順並べ替え問題を作成してください。
+
+テキスト: ${text}
+
+必ずJSON形式のみで以下のように出力してください。他の説明は不要です：
+{
+  "questions": [
+    {
+      "original": "元の正しい文章",
+      "shuffled": ["単語1", "単語2", "単語3", "..."],
+      "answer": "元の正しい文章",
+      "explanation": "文法や構造の説明"
+    }
+  ]
+}`
         break
         
       case 'translation':
-        // 翻訳問題
-        quizData.questions = sentences.slice(0, 3).map(sentence => ({
-          question: sentence.trim(),
-          answer: `${sentence.trim()}の翻訳`,
-          explanation: `この文章を翻訳しましょう`
-        }))
+        prompt = `以下のテキストから文章を3つ選び、翻訳問題を作成してください（英語なら日本語へ、日本語なら英語へ）。
+
+テキスト: ${text}
+
+必ずJSON形式のみで以下のように出力してください。他の説明は不要です：
+{
+  "questions": [
+    {
+      "question": "翻訳する文章",
+      "answer": "正解の翻訳",
+      "explanation": "翻訳のポイントや注意点"
+    }
+  ]
+}`
         break
         
       case 'reading':
-        // 発音問題
-        quizData.questions = words.slice(0, 3).map(word => ({
-          word: word,
-          options: [
-            `/${word}/（正しい発音）`,
-            `/${word}1/`,
-            `/${word}2/`,
-            `/${word}3/`
-          ],
-          correct: 0,
-          explanation: `${word}の発音を確認しましょう`
-        }))
+        prompt = `以下のテキストから単語を3つ選び、発音・アクセント問題を作成してください。
+
+テキスト: ${text}
+
+必ずJSON形式のみで以下のように出力してください。他の説明は不要です：
+{
+  "questions": [
+    {
+      "word": "単語",
+      "options": ["正しい発音記号", "誤った発音1", "誤った発音2", "誤った発音3"],
+      "correct": 0,
+      "explanation": "発音のポイント"
+    }
+  ]
+}`
         break
         
       default:
         return c.json({ error: '無効な問題タイプです' }, 400)
     }
 
-    return c.json({ 
-      success: true,
-      quiz: quizData
+    // GenSpark AI API を呼び出して問題生成
+    const apiResponse = await fetch('https://api.genspark.ai/v1/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: 'あなたは教育用の問題作成の専門家です。指示に従って正確にJSON形式で問題を作成してください。' },
+          { role: 'user', content: prompt }
+        ],
+        model: 'gemini-flash',
+        temperature: 0.7
+      })
     })
+
+    const data = await apiResponse.json()
+    
+    if (data && data.content) {
+      let content = data.content
+      
+      // ```json ``` で囲まれている場合は除去
+      content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+      
+      // JSONを抽出
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const quizData = JSON.parse(jsonMatch[0])
+        return c.json({ 
+          success: true,
+          quiz: quizData
+        })
+      }
+    }
+
+    return c.json({ 
+      error: '問題生成に失敗しました',
+      raw: data
+    }, 500)
     
   } catch (error) {
     console.error('問題生成エラー:', error)
@@ -125,33 +195,70 @@ app.post('/api/generate-quiz', async (c) => {
   }
 })
 
-// シンプルな解答チェック
+// AI解答チェック
 app.post('/api/check-answer', async (c) => {
   try {
-    const { userAnswer, correctAnswer } = await c.req.json()
+    const { userAnswer, correctAnswer, questionType } = await c.req.json()
     
     if (!userAnswer || !correctAnswer) {
       return c.json({ error: '解答と正解が必要です' }, 400)
     }
 
-    // シンプルな文字列比較
-    const userLower = userAnswer.toString().trim().toLowerCase()
-    const correctLower = correctAnswer.toString().trim().toLowerCase()
+    const prompt = `以下の解答を採点してください。
+
+問題タイプ: ${questionType}
+正解: ${correctAnswer}
+ユーザーの解答: ${userAnswer}
+
+厳密な一致は求めず、意味が合っていれば正解としてください。
+翻訳問題の場合は、完璧でなくても意味が通じていれば部分点を与えてください。
+
+必ずJSON形式のみで以下のように出力してください。他の説明は不要です：
+{
+  "isCorrect": true または false,
+  "score": 0から100の点数,
+  "feedback": "具体的なフィードバックメッセージ（どこが良かった、どこを改善すべきか）"
+}`
+
+    // GenSpark AI API を呼び出して採点
+    const apiResponse = await fetch('https://api.genspark.ai/v1/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: 'あなたは教育用の採点の専門家です。学習者に優しく、建設的なフィードバックを提供してください。' },
+          { role: 'user', content: prompt }
+        ],
+        model: 'gemini-flash',
+        temperature: 0.3
+      })
+    })
+
+    const data = await apiResponse.json()
     
-    const isCorrect = userLower === correctLower || userLower.includes(correctLower) || correctLower.includes(userLower)
-    const score = isCorrect ? 100 : 0
-    const feedback = isCorrect 
-      ? '正解です！よくできました！' 
-      : `不正解です。正解は「${correctAnswer}」です。`
+    if (data && data.content) {
+      let content = data.content
+      
+      // ```json ``` で囲まれている場合は除去
+      content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+      
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+      
+      if (jsonMatch) {
+        const result = JSON.parse(jsonMatch[0])
+        return c.json({ 
+          success: true,
+          result
+        })
+      }
+    }
 
     return c.json({ 
-      success: true,
-      result: {
-        isCorrect,
-        score,
-        feedback
-      }
-    })
+      error: '採点に失敗しました',
+      raw: data
+    }, 500)
     
   } catch (error) {
     console.error('採点エラー:', error)
@@ -181,31 +288,47 @@ app.get('/', (c) => {
                     <i class="fas fa-book-open mr-3"></i>
                     教科書クイズ生成アプリ
                 </h1>
-                <p class="text-gray-600">テキストを入力して、自動的に小テストを作成</p>
+                <p class="text-gray-600">📸 テキストブックの写真を撮って、自動的に小テストを作成</p>
             </header>
 
             <div id="app" class="max-w-4xl mx-auto">
-                <!-- テキスト入力セクション -->
+                <!-- 画像アップロードセクション -->
                 <div id="upload-section" class="bg-white rounded-lg shadow-lg p-8 mb-8">
                     <h2 class="text-2xl font-bold text-gray-800 mb-4">
-                        <i class="fas fa-edit mr-2"></i>
-                        学習テキストを入力
+                        <i class="fas fa-camera mr-2"></i>
+                        📸 教科書の写真をアップロード
                     </h2>
                     
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            教科書・テキストの内容を入力してください
+                            画像ファイルを選択、またはURLを入力
                         </label>
-                        <textarea id="text-input" 
-                                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                                  rows="10"
-                                  placeholder="学習したいテキストをここに貼り付けてください...&#10;&#10;例:&#10;The quick brown fox jumps over the lazy dog.&#10;これは英語の練習文です。"></textarea>
+                        <input type="file" id="image-file" accept="image/*"
+                               class="block w-full text-sm text-gray-500 mb-3 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                        
+                        <div class="relative">
+                            <div class="absolute inset-0 flex items-center">
+                                <div class="w-full border-t border-gray-300"></div>
+                            </div>
+                            <div class="relative flex justify-center text-sm">
+                                <span class="px-2 bg-white text-gray-500">または</span>
+                            </div>
+                        </div>
+                        
+                        <input type="text" id="image-url" 
+                               class="w-full px-4 py-2 mt-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                               placeholder="画像URLを入力...">
+                    </div>
+
+                    <div id="image-preview" class="mb-4 hidden">
+                        <p class="text-sm text-gray-600 mb-2">プレビュー:</p>
+                        <img id="preview-img" class="max-w-full h-auto rounded-lg border-2 border-gray-200" alt="プレビュー">
                     </div>
 
                     <button id="analyze-btn" 
                             class="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
-                        <i class="fas fa-arrow-right mr-2"></i>
-                        問題を作成
+                        <i class="fas fa-magic mr-2"></i>
+                        📝 画像を解析して問題を作成
                     </button>
                 </div>
 
