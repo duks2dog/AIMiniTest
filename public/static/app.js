@@ -73,26 +73,40 @@ async function analyzeImage(imageUrl) {
     try {
         showLoading();
         
-        const response = await axios.post('/api/analyze-image', {
-            imageUrl: imageUrl
+        // Tesseract.js を使ってブラウザ上でOCR実行
+        const worker = await Tesseract.createWorker('jpn+eng', 1, {
+            logger: m => {
+                if (m.status === 'recognizing text') {
+                    console.log(`OCR進捗: ${Math.round(m.progress * 100)}%`);
+                }
+            }
         });
+        
+        const result = await worker.recognize(imageUrl);
+        await worker.terminate();
         
         hideLoading();
         
-        if (response.data.success) {
-            extractedText = response.data.text;
+        if (result && result.data && result.data.text) {
+            extractedText = result.data.text.trim();
+            
+            if (extractedText.length < 10) {
+                alert('テキストが検出できませんでした。画像がぼやけていないか、テキストが含まれているか確認してください。');
+                return;
+            }
+            
             extractedTextEl.textContent = extractedText;
             quizTypeSection.classList.remove('hidden');
             
             // スクロール
             quizTypeSection.scrollIntoView({ behavior: 'smooth' });
         } else {
-            alert('画像解析に失敗しました: ' + response.data.error);
+            alert('画像からテキストを抽出できませんでした');
         }
     } catch (error) {
         hideLoading();
         console.error('エラー:', error);
-        alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+        alert('エラーが発生しました: ' + error.message);
     }
 }
 
