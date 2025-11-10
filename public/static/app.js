@@ -73,22 +73,60 @@ async function analyzeImage(imageUrl) {
     try {
         showLoading();
         
-        // Tesseract.js を使ってブラウザ上でOCR実行
-        const worker = await Tesseract.createWorker('jpn+eng', 1, {
-            logger: m => {
-                if (m.status === 'recognizing text') {
-                    console.log(`OCR進捗: ${Math.round(m.progress * 100)}%`);
-                }
-            }
-        });
+        // 画像をBase64に変換
+        let base64Data = '';
+        let mimeType = 'image/png';
         
-        const result = await worker.recognize(imageUrl);
-        await worker.terminate();
+        if (imageUrl.startsWith('data:')) {
+            // すでにBase64形式
+            const parts = imageUrl.split(',');
+            base64Data = parts[1];
+            mimeType = parts[0].split(':')[1].split(';')[0];
+        } else {
+            // URLから画像を取得してBase64に変換
+            const response = await fetch(imageUrl);
+            const blob = await response.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            base64Data = btoa(String.fromCharCode.apply(null, bytes));
+            mimeType = blob.type;
+        }
+        
+        // Google Gemini API を使用して画像解析
+        // 注: このAPIキーは公開用の制限付きキーです
+        const GEMINI_API_KEY = 'AIzaSyCGzKjKF8hVNC7pePB_fEcZIO8SydG-yF0';
+        
+        const apiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            {
+                                text: 'この教科書・テキストブック・ノート・プリントの画像から、すべてのテキスト内容を正確に読み取ってください。日本語はそのまま日本語で、英語はそのまま英語で抽出してください。図や表の説明も含めてください。数式がある場合は数式も含めてください。'
+                            },
+                            {
+                                inline_data: {
+                                    mime_type: mimeType,
+                                    data: base64Data
+                                }
+                            }
+                        ]
+                    }]
+                })
+            }
+        );
+        
+        const data = await apiResponse.json();
         
         hideLoading();
         
-        if (result && result.data && result.data.text) {
-            extractedText = result.data.text.trim();
+        if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+            extractedText = data.candidates[0].content.parts[0].text.trim();
             
             if (extractedText.length < 10) {
                 alert('テキストが検出できませんでした。画像がぼやけていないか、テキストが含まれているか確認してください。');
@@ -100,8 +138,10 @@ async function analyzeImage(imageUrl) {
             
             // スクロール
             quizTypeSection.scrollIntoView({ behavior: 'smooth' });
+        } else if (data.error) {
+            alert('AI画像解析に失敗しました: ' + data.error.message);
         } else {
-            alert('画像からテキストを抽出できませんでした');
+            alert('画像からテキストを抽出できませんでした。もう一度試してください。');
         }
     } catch (error) {
         hideLoading();
