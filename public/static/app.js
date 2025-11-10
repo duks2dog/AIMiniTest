@@ -4,6 +4,9 @@ let currentQuizType = '';
 let currentQuiz = null;
 
 // DOM要素の取得
+const apiKeyInput = document.getElementById('api-key-input');
+const saveApiKeyBtn = document.getElementById('save-api-key-btn');
+const apiKeyStatus = document.getElementById('api-key-status');
 const imageFileInput = document.getElementById('image-file');
 const imageUrlInput = document.getElementById('image-url');
 const imagePreview = document.getElementById('image-preview');
@@ -18,6 +21,27 @@ const newQuizBtn = document.getElementById('new-quiz-btn');
 const resultSection = document.getElementById('result-section');
 const resultContent = document.getElementById('result-content');
 const loading = document.getElementById('loading');
+
+// APIキーの管理
+let GEMINI_API_KEY = localStorage.getItem('gemini_api_key') || '';
+
+// 初期化時にAPIキーを読み込む
+if (GEMINI_API_KEY) {
+    apiKeyInput.value = GEMINI_API_KEY;
+    apiKeyStatus.innerHTML = '<span class="text-green-600">✓ 保存済み</span>';
+}
+
+// APIキーを保存
+saveApiKeyBtn.addEventListener('click', () => {
+    const key = apiKeyInput.value.trim();
+    if (key && key.startsWith('AIzaSy')) {
+        localStorage.setItem('gemini_api_key', key);
+        GEMINI_API_KEY = key;
+        apiKeyStatus.innerHTML = '<span class="text-green-600">✓ 保存しました！</span>';
+    } else {
+        apiKeyStatus.innerHTML = '<span class="text-red-600">✗ 無効なAPIキーです</span>';
+    }
+});
 
 // ローディング表示
 function showLoading() {
@@ -93,8 +117,11 @@ async function analyzeImage(imageUrl) {
         }
         
         // Google Gemini API を使用して画像解析
-        // 注: このAPIキーは公開用の制限付きキーです
-        const GEMINI_API_KEY = 'AIzaSyCGzKjKF8hVNC7pePB_fEcZIO8SydG-yF0';
+        if (!GEMINI_API_KEY) {
+            hideLoading();
+            alert('Gemini APIキーを設定してください。上部の設定エリアからAPIキーを入力してください。');
+            return;
+        }
         
         const apiResponse = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,

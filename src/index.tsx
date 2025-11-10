@@ -298,6 +298,26 @@ app.get('/', (c) => {
                         📸 教科書の写真をアップロード
                     </h2>
                     
+                    <!-- APIキー設定エリア -->
+                    <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div class="flex items-start">
+                            <i class="fas fa-key text-blue-600 mt-1 mr-3"></i>
+                            <div class="flex-1">
+                                <h3 class="font-semibold text-blue-800 mb-2">🔑 Gemini APIキー（画像認識用）</h3>
+                                <p class="text-sm text-blue-700 mb-3">
+                                    <a href="https://makersuite.google.com/app/apikey" target="_blank" class="underline font-semibold">ここをクリック</a>して無料でAPIキーを取得してください
+                                </p>
+                                <input type="password" id="api-key-input" 
+                                       class="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm mb-2"
+                                       placeholder="AIzaSy... で始まるAPIキーを入力">
+                                <button id="save-api-key-btn" class="bg-blue-600 text-white px-4 py-1 rounded text-sm hover:bg-blue-700">
+                                    保存
+                                </button>
+                                <span id="api-key-status" class="ml-2 text-sm"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">
                             画像ファイルを選択、またはURLを入力
