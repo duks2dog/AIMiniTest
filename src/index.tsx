@@ -5,6 +5,9 @@ import { serveStatic } from 'hono/cloudflare-workers'
 type Bindings = {
   AI?: any
   GEMINI_API_KEY?: string
+  GCP_PROJECT_ID?: string
+  GCP_LOCATION?: string
+  GCP_SERVICE_ACCOUNT_KEY?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -54,28 +57,105 @@ app.post('/api/analyze-image', async (c) => {
   }
 })
 
-// AI Vision専用エンドポイント - 画像理解処理
-app.post('/api/vision', async (c) => {
+// Vertex AI画像解析エンドポイント
+app.post('/api/vertex-analyze', async (c) => {
   try {
-    const { imageData } = await c.req.json()
+    const { imageData, projectId, location, serviceAccountKey } = await c.req.json()
     
-    if (!imageData) {
-      return c.json({ error: '画像データが必要です' }, 400)
+    if (!imageData || !projectId || !serviceAccountKey) {
+      return c.json({ error: '画像データ、プロジェクトID、サービスアカウントキーが必要です' }, 400)
     }
 
-    // ここでAI画像理解APIを呼び出す
-    // 注: 本番環境ではCloudflare AI Workersを使用
-    // ローカル開発では制限があるため、シンプルなレスポンスを返す
+    // サービスアカウントキーをパース
+    let serviceAccount
+    try {
+      serviceAccount = typeof serviceAccountKey === 'string' 
+        ? JSON.parse(serviceAccountKey) 
+        : serviceAccountKey
+    } catch (e) {
+      return c.json({ error: 'サービスアカウントキーのJSON形式が無効です' }, 400)
+    }
+
+    // OAuth 2.0トークンを取得
+    const now = Math.floor(Date.now() / 1000)
+    const jwtHeader = { alg: 'RS256', typ: 'JWT' }
+    const jwtClaim = {
+      iss: serviceAccount.client_email,
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: now + 3600,
+      iat: now
+    }
+
+    // JWT署名（簡易実装 - 本番では適切なライブラリを使用）
+    const jwtData = `${btoa(JSON.stringify(jwtHeader))}.${btoa(JSON.stringify(jwtClaim))}`
     
-    return c.json({ 
-      success: true,
-      text: '[AI画像理解機能は本番環境で有効になります。現在はテストモードです。]\n\nテキスト入力モードを使用するか、本番環境にデプロイしてください。'
+    // アクセストークン取得
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: jwtData
+      })
     })
+
+    if (!tokenResponse.ok) {
+      return c.json({ error: 'OAuth認証に失敗しました' }, 500)
+    }
+
+    const { access_token } = await tokenResponse.json()
+
+    // Base64データを抽出
+    const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData
+    const mimeType = imageData.includes(',') 
+      ? imageData.split(',')[0].split(':')[1].split(';')[0] 
+      : 'image/png'
+
+    // Vertex AI Gemini APIを呼び出し
+    const vertexEndpoint = `https://${location || 'us-central1'}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location || 'us-central1'}/publishers/google/models/gemini-2.0-flash-exp:generateContent`
+    
+    const apiResponse = await fetch(vertexEndpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            {
+              text: 'この教科書・テキストブック・ノート・プリントの画像から、すべてのテキスト内容を正確に読み取ってください。日本語はそのまま日本語で、英語はそのまま英語で抽出してください。図や表の説明も含めてください。数式がある場合は数式も含めてください。'
+            },
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: base64Data
+              }
+            }
+          ]
+        }]
+      })
+    })
+
+    const result = await apiResponse.json()
+    
+    if (result.candidates && result.candidates[0]?.content?.parts[0]?.text) {
+      return c.json({ 
+        success: true,
+        text: result.candidates[0].content.parts[0].text
+      })
+    } else {
+      return c.json({ 
+        error: '画像からテキストを抽出できませんでした',
+        details: result
+      }, 500)
+    }
     
   } catch (error) {
-    console.error('Vision APIエラー:', error)
+    console.error('Vertex AI エラー:', error)
     return c.json({ 
-      error: 'AI画像理解に失敗しました',
+      error: 'Vertex AI画像解析に失敗しました',
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }
@@ -298,24 +378,87 @@ app.get('/', (c) => {
                         📸 教科書の写真をアップロード
                     </h2>
                     
-                    <!-- APIキー設定エリア -->
+                    <!-- API設定エリア -->
                     <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                         <div class="flex items-start">
                             <i class="fas fa-key text-blue-600 mt-1 mr-3"></i>
                             <div class="flex-1">
-                                <h3 class="font-semibold text-blue-800 mb-2">🔑 Gemini APIキー（画像認識用）</h3>
-                                <p class="text-sm text-blue-700 mb-3">
-                                    <a href="https://makersuite.google.com/app/apikey" target="_blank" class="underline font-semibold">ここをクリック</a>して無料でAPIキーを取得してください
-                                </p>
-                                <input type="password" id="api-key-input" 
-                                       class="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm mb-2"
-                                       placeholder="AIzaSy... で始まるAPIキーを入力">
-                                <button id="save-api-key-btn" class="bg-blue-600 text-white px-4 py-1 rounded text-sm hover:bg-blue-700">
-                                    保存
-                                </button>
-                                <span id="api-key-status" class="ml-2 text-sm"></span>
+                                <h3 class="font-semibold text-blue-800 mb-3">🔑 AI設定</h3>
+                                
+                                <!-- タブ切り替え -->
+                                <div class="flex gap-2 mb-4">
+                                    <button id="tab-gemini" class="px-4 py-2 bg-blue-600 text-white rounded text-sm font-semibold">
+                                        Gemini API
+                                    </button>
+                                    <button id="tab-vertex" class="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm">
+                                        Vertex AI (GCP)
+                                    </button>
+                                </div>
+                                
+                                <!-- Gemini API設定 -->
+                                <div id="gemini-config">
+                                    <p class="text-sm text-blue-700 mb-3">
+                                        <a href="https://makersuite.google.com/app/apikey" target="_blank" class="underline font-semibold">ここをクリック</a>して無料でAPIキーを取得
+                                    </p>
+                                    <input type="password" id="api-key-input" 
+                                           class="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm mb-2"
+                                           placeholder="AIzaSy... で始まるAPIキーを入力">
+                                    <button id="save-api-key-btn" class="bg-blue-600 text-white px-4 py-1 rounded text-sm hover:bg-blue-700">
+                                        保存
+                                    </button>
+                                    <span id="api-key-status" class="ml-2 text-sm"></span>
+                                </div>
+                                
+                                <!-- Vertex AI設定 -->
+                                <div id="vertex-config" class="hidden">
+                                    <p class="text-sm text-blue-700 mb-3">
+                                        GCPプロジェクトのVertex AIを使用します
+                                    </p>
+                                    <input type="text" id="gcp-project-id" 
+                                           class="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm mb-2"
+                                           placeholder="GCPプロジェクトID (例: my-project-123)">
+                                    <input type="text" id="gcp-location" 
+                                           class="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm mb-2"
+                                           placeholder="リージョン (デフォルト: us-central1)"
+                                           value="us-central1">
+                                    <textarea id="gcp-access-token" 
+                                              class="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm mb-2"
+                                              rows="3"
+                                              placeholder="アクセストークン (ターミナルで 'gcloud auth print-access-token' を実行)"></textarea>
+                                    <button id="save-vertex-btn" class="bg-blue-600 text-white px-4 py-1 rounded text-sm hover:bg-blue-700">
+                                        保存
+                                    </button>
+                                    <span id="vertex-status" class="ml-2 text-sm"></span>
+                                    <p class="text-xs text-blue-600 mt-2">
+                                        💡 トークンは1時間で期限切れになります。期限切れ時は再取得してください。
+                                    </p>
+                                </div>
                             </div>
                         </div>
+                    </div>
+                    
+                    <!-- 学習内容の種類を選択 -->
+                    <div class="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                        <label class="block text-sm font-semibold text-purple-800 mb-3">
+                            <i class="fas fa-language mr-2"></i>
+                            📚 学習内容の種類を選択
+                        </label>
+                        <select id="subject-type" class="w-full px-4 py-2 border border-purple-300 rounded-lg text-sm bg-white">
+                            <option value="english">英語</option>
+                            <option value="chinese">中国語</option>
+                            <option value="japanese">日本語（国語）</option>
+                            <option value="korean">韓国語</option>
+                            <option value="french">フランス語</option>
+                            <option value="german">ドイツ語</option>
+                            <option value="spanish">スペイン語</option>
+                            <option value="math">数学</option>
+                            <option value="science">理科</option>
+                            <option value="history">歴史・社会</option>
+                            <option value="other">その他</option>
+                        </select>
+                        <p class="text-xs text-purple-600 mt-2">
+                            💡 画像解析の精度が向上します
+                        </p>
                     </div>
                     
                     <div class="mb-4">

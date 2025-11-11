@@ -7,6 +7,7 @@ let currentQuiz = null;
 const apiKeyInput = document.getElementById('api-key-input');
 const saveApiKeyBtn = document.getElementById('save-api-key-btn');
 const apiKeyStatus = document.getElementById('api-key-status');
+const subjectType = document.getElementById('subject-type');
 const imageFileInput = document.getElementById('image-file');
 const imageUrlInput = document.getElementById('image-url');
 const imagePreview = document.getElementById('image-preview');
@@ -22,16 +23,64 @@ const resultSection = document.getElementById('result-section');
 const resultContent = document.getElementById('result-content');
 const loading = document.getElementById('loading');
 
-// APIキーの管理
+// API設定の管理
+let API_MODE = localStorage.getItem('api_mode') || 'gemini'; // 'gemini' or 'vertex'
 let GEMINI_API_KEY = localStorage.getItem('gemini_api_key') || '';
+let GCP_PROJECT_ID = localStorage.getItem('gcp_project_id') || '';
+let GCP_LOCATION = localStorage.getItem('gcp_location') || 'us-central1';
+let GCP_ACCESS_TOKEN = localStorage.getItem('gcp_access_token') || '';
 
-// 初期化時にAPIキーを読み込む
+// DOM要素を取得
+const tabGemini = document.getElementById('tab-gemini');
+const tabVertex = document.getElementById('tab-vertex');
+const geminiConfig = document.getElementById('gemini-config');
+const vertexConfig = document.getElementById('vertex-config');
+const gcpProjectIdInput = document.getElementById('gcp-project-id');
+const gcpLocationInput = document.getElementById('gcp-location');
+const gcpAccessTokenInput = document.getElementById('gcp-access-token');
+const saveVertexBtn = document.getElementById('save-vertex-btn');
+const vertexStatus = document.getElementById('vertex-status');
+
+// タブ切り替え
+tabGemini.addEventListener('click', () => {
+    API_MODE = 'gemini';
+    localStorage.setItem('api_mode', 'gemini');
+    tabGemini.className = 'px-4 py-2 bg-blue-600 text-white rounded text-sm font-semibold';
+    tabVertex.className = 'px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm';
+    geminiConfig.classList.remove('hidden');
+    vertexConfig.classList.add('hidden');
+});
+
+tabVertex.addEventListener('click', () => {
+    API_MODE = 'vertex';
+    localStorage.setItem('api_mode', 'vertex');
+    tabVertex.className = 'px-4 py-2 bg-blue-600 text-white rounded text-sm font-semibold';
+    tabGemini.className = 'px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm';
+    vertexConfig.classList.remove('hidden');
+    geminiConfig.classList.add('hidden');
+});
+
+// 初期化時に設定を読み込む
 if (GEMINI_API_KEY) {
     apiKeyInput.value = GEMINI_API_KEY;
     apiKeyStatus.innerHTML = '<span class="text-green-600">✓ 保存済み</span>';
 }
 
-// APIキーを保存
+if (GCP_PROJECT_ID) {
+    gcpProjectIdInput.value = GCP_PROJECT_ID;
+    gcpLocationInput.value = GCP_LOCATION;
+    gcpAccessTokenInput.value = GCP_ACCESS_TOKEN;
+    vertexStatus.innerHTML = '<span class="text-green-600">✓ 保存済み</span>';
+}
+
+// 初期表示を設定
+if (API_MODE === 'vertex') {
+    tabVertex.click();
+} else {
+    tabGemini.click();
+}
+
+// Gemini APIキーを保存
 saveApiKeyBtn.addEventListener('click', () => {
     const key = apiKeyInput.value.trim();
     if (key && key.startsWith('AIzaSy')) {
@@ -40,6 +89,25 @@ saveApiKeyBtn.addEventListener('click', () => {
         apiKeyStatus.innerHTML = '<span class="text-green-600">✓ 保存しました！</span>';
     } else {
         apiKeyStatus.innerHTML = '<span class="text-red-600">✗ 無効なAPIキーです</span>';
+    }
+});
+
+// Vertex AI設定を保存
+saveVertexBtn.addEventListener('click', () => {
+    const projectId = gcpProjectIdInput.value.trim();
+    const location = gcpLocationInput.value.trim();
+    const accessToken = gcpAccessTokenInput.value.trim();
+    
+    if (projectId && accessToken) {
+        localStorage.setItem('gcp_project_id', projectId);
+        localStorage.setItem('gcp_location', location || 'us-central1');
+        localStorage.setItem('gcp_access_token', accessToken);
+        GCP_PROJECT_ID = projectId;
+        GCP_LOCATION = location || 'us-central1';
+        GCP_ACCESS_TOKEN = accessToken;
+        vertexStatus.innerHTML = '<span class="text-green-600">✓ 保存しました！</span>';
+    } else {
+        vertexStatus.innerHTML = '<span class="text-red-600">✗ プロジェクトIDとトークンが必要です</span>';
     }
 });
 
@@ -123,6 +191,24 @@ async function analyzeImage(imageUrl) {
             return;
         }
         
+        // 学習内容に応じたプロンプトを生成
+        const subject = subjectType.value;
+        const subjectPrompts = {
+            'english': 'この英語の教科書・テキストブック・ノート・プリントの画像から、すべての英文とその日本語訳、単語、フレーズを正確に読み取ってください。',
+            'chinese': 'この中国語の教科書・テキストブック・ノート・プリントの画像から、すべての中国語の文章、ピンイン、日本語訳を正確に読み取ってください。漢字、簡体字、繁体字すべて対応してください。',
+            'japanese': 'この日本語（国語）の教科書・テキストブック・ノート・プリントの画像から、すべての文章、漢字の読み方、文法説明を正確に読み取ってください。',
+            'korean': 'この韓国語の教科書・テキストブック・ノート・プリントの画像から、すべてのハングル文字、日本語訳、発音を正確に読み取ってください。',
+            'french': 'このフランス語の教科書・テキストブック・ノート・プリントの画像から、すべてのフランス語の文章と日本語訳を正確に読み取ってください。',
+            'german': 'このドイツ語の教科書・テキストブック・ノート・プリントの画像から、すべてのドイツ語の文章と日本語訳を正確に読み取ってください。',
+            'spanish': 'このスペイン語の教科書・テキストブック・ノート・プリントの画像から、すべてのスペイン語の文章と日本語訳を正確に読み取ってください。',
+            'math': 'この数学の教科書・テキストブック・ノート・プリントの画像から、すべての数式、計算式、問題文、解説を正確に読み取ってください。数式はLaTeX形式またはテキスト形式で出力してください。',
+            'science': 'この理科の教科書・テキストブック・ノート・プリントの画像から、すべての文章、図の説明、化学式、実験手順を正確に読み取ってください。',
+            'history': 'この歴史・社会の教科書・テキストブック・ノート・プリントの画像から、すべての文章、年表、地名、人名、出来事を正確に読み取ってください。',
+            'other': 'この教科書・テキストブック・ノート・プリントの画像から、すべてのテキスト内容を正確に読み取ってください。日本語はそのまま日本語で、外国語はそのまま抽出してください。'
+        };
+        
+        const prompt = subjectPrompts[subject] || subjectPrompts['other'];
+        
         const apiResponse = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
             {
@@ -134,7 +220,7 @@ async function analyzeImage(imageUrl) {
                     contents: [{
                         parts: [
                             {
-                                text: 'この教科書・テキストブック・ノート・プリントの画像から、すべてのテキスト内容を正確に読み取ってください。日本語はそのまま日本語で、英語はそのまま英語で抽出してください。図や表の説明も含めてください。数式がある場合は数式も含めてください。'
+                                text: prompt + '\n\n図や表の説明も含めてください。数式がある場合は数式も含めてください。元の言語のまま、正確に抽出してください。'
                             },
                             {
                                 inline_data: {
