@@ -268,38 +268,183 @@ document.querySelectorAll('.quiz-type-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
         const quizType = btn.dataset.type;
         currentQuizType = quizType;
-        await generateQuiz(quizType);
+        await generateQuizFromImage(quizType);
     });
 });
 
-// 問題生成
-async function generateQuiz(quizType) {
+// 画像から直接問題を生成（OCRスキップ）
+async function generateQuizFromImage(quizType) {
     try {
         showLoading();
         
-        const response = await axios.post('/api/generate-quiz', {
-            text: extractedText,
-            quizType: quizType,
-            language: 'ja'
-        });
+        // 画像データを取得（すでにanalyzeImage時に保存されている想定）
+        const imageData = previewImg.src;
+        
+        if (!imageData) {
+            hideLoading();
+            alert('画像がアップロードされていません');
+            return;
+        }
+        
+        if (!GEMINI_API_KEY) {
+            hideLoading();
+            alert('Gemini APIキーを設定してください');
+            return;
+        }
+        
+        // 画像をBase64に変換
+        let base64Data = '';
+        let mimeType = 'image/png';
+        
+        if (imageData.startsWith('data:')) {
+            const parts = imageData.split(',');
+            base64Data = parts[1];
+            mimeType = parts[0].split(':')[1].split(';')[0];
+        }
+        
+        // 学習内容の種類を取得
+        const subject = subjectType.value;
+        const subjectNames = {
+            'english': '英語',
+            'chinese': '中国語',
+            'japanese': '日本語',
+            'korean': '韓国語',
+            'french': 'フランス語',
+            'german': 'ドイツ語',
+            'spanish': 'スペイン語',
+            'math': '数学',
+            'science': '理科',
+            'history': '歴史',
+            'other': ''
+        };
+        
+        // 問題タイプに応じたプロンプト
+        let prompt = '';
+        switch(quizType) {
+            case 'vocabulary':
+                prompt = `この${subjectNames[subject]}の教科書画像を見て、重要な単語・用語を20個抽出し、4択問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "word": "単語",
+      "options": ["正解", "不正解1", "不正解2", "不正解3"],
+      "correct": 0,
+      "explanation": "詳しい解説"
+    }
+  ]
+}
+
+20問作成してください。`;
+                break;
+                
+            case 'word-order':
+                prompt = `この${subjectNames[subject]}の教科書画像を見て、文章を20個選び、語順並べ替え問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "original": "元の文章",
+      "shuffled": ["単語1", "単語2", "単語3"],
+      "answer": "元の文章",
+      "explanation": "文法解説"
+    }
+  ]
+}
+
+20問作成してください。`;
+                break;
+                
+            case 'translation':
+                prompt = `この${subjectNames[subject]}の教科書画像を見て、重要な文章を20個選び、翻訳問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "question": "翻訳する文章",
+      "answer": "模範解答",
+      "explanation": "翻訳のポイント"
+    }
+  ]
+}
+
+20問作成してください。`;
+                break;
+                
+            case 'reading':
+                prompt = `この${subjectNames[subject]}の教科書画像を見て、重要な単語を20個選び、発音・アクセント問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "word": "単語",
+      "options": ["正しい発音", "誤り1", "誤り2", "誤り3"],
+      "correct": 0,
+      "explanation": "発音のポイント"
+    }
+  ]
+}
+
+20問作成してください。`;
+                break;
+        }
+        
+        // Gemini APIに画像と一緒にリクエスト
+        const apiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            {
+                                inline_data: {
+                                    mime_type: mimeType,
+                                    data: base64Data
+                                }
+                            }
+                        ]
+                    }]
+                })
+            }
+        );
+        
+        const data = await apiResponse.json();
         
         hideLoading();
         
-        if (response.data.success) {
-            currentQuiz = response.data.quiz;
-            displayQuiz(currentQuiz, quizType);
-            quizSection.classList.remove('hidden');
-            resultSection.classList.add('hidden');
+        if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+            let content = data.candidates[0].content.parts[0].text;
             
-            // スクロール
-            quizSection.scrollIntoView({ behavior: 'smooth' });
+            // JSONを抽出
+            content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            
+            if (jsonMatch) {
+                currentQuiz = JSON.parse(jsonMatch[0]);
+                displayQuiz(currentQuiz, quizType);
+                quizSection.classList.remove('hidden');
+                resultSection.classList.add('hidden');
+                quizSection.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                alert('問題生成に失敗しました。もう一度試してください。');
+            }
         } else {
-            alert('問題生成に失敗しました: ' + response.data.error);
+            alert('問題生成に失敗しました: ' + (data.error?.message || '不明なエラー'));
         }
+        
     } catch (error) {
         hideLoading();
         console.error('エラー:', error);
-        alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+        alert('エラーが発生しました: ' + error.message);
     }
 }
 

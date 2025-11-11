@@ -505,7 +505,10 @@ app.get('/', (c) => {
                         <p id="extracted-text" class="text-gray-700 whitespace-pre-wrap"></p>
                     </div>
 
-                    <h3 class="text-xl font-bold text-gray-800 mb-3">問題タイプを選択</h3>
+                    <h3 class="text-xl font-bold text-gray-800 mb-3">問題タイプを選択（各20問生成）</h3>
+                    <p class="text-sm text-gray-600 mb-4">
+                        ⚡ 画像から直接AIが問題を生成します（OCRスキップで高品質）
+                    </p>
                     <div class="grid grid-cols-2 gap-4 mb-6">
                         <button class="quiz-type-btn bg-purple-100 text-purple-700 py-4 px-6 rounded-lg font-semibold hover:bg-purple-200 transition" data-type="vocabulary">
                             <i class="fas fa-spell-check mr-2"></i>
