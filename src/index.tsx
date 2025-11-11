@@ -254,16 +254,47 @@ app.post('/api/generate-quiz', async (c) => {
 // シンプルな解答チェック（改良版）
 app.post('/api/check-answer', async (c) => {
   try {
-    const { userAnswer, correctAnswer } = await c.req.json()
+    const { userAnswer, correctAnswer, questionType } = await c.req.json()
     
     if (!userAnswer || !correctAnswer) {
       return c.json({ error: '解答と正解が必要です' }, 400)
     }
 
     // 正規化して比較
-    const normalize = (str) => str.toString().trim().toLowerCase().replace(/[.,!?;:]/g, '')
+    const normalize = (str) => {
+      return str.toString()
+        .trim()
+        .toLowerCase()
+        .replace(/[.,!?;:，。！？；：]/g, '') // 句読点を削除
+        .replace(/\s+/g, '') // すべての空白を削除（並び替え問題対応）
+    }
+    
     const userNorm = normalize(userAnswer)
     const correctNorm = normalize(correctAnswer)
+    
+    // 並び替え問題の場合は厳密に一致チェック
+    if (questionType === 'word-order') {
+      if (userNorm === correctNorm) {
+        return c.json({ 
+          success: true,
+          result: {
+            isCorrect: true,
+            score: 100,
+            feedback: '🎉 完璧です！正解です！'
+          }
+        })
+      } else {
+        // 語順が違う場合は部分点なし
+        return c.json({ 
+          success: true,
+          result: {
+            isCorrect: false,
+            score: 0,
+            feedback: `❌ 不正解です。正解は「${correctAnswer}」です。語順に注意しましょう！`
+          }
+        })
+      }
+    }
     
     // 完全一致
     if (userNorm === correctNorm) {
@@ -277,7 +308,7 @@ app.post('/api/check-answer', async (c) => {
       })
     }
     
-    // 部分一致（70%以上）
+    // 部分一致（70%以上）- 翻訳問題などで使用
     const similarity = calculateSimilarity(userNorm, correctNorm)
     if (similarity >= 0.7) {
       return c.json({ 
