@@ -322,21 +322,38 @@ async function generateQuizFromImage(quizType) {
         let prompt = '';
         switch(quizType) {
             case 'vocabulary':
-                prompt = `この${subjectNames[subject]}の教科書画像を見て、重要な単語・用語を20個抽出し、4択問題を作成してください。
+                let vocabInstruction = '';
+                if (subject === 'chinese') {
+                    vocabInstruction = `この中国語の教科書画像を見て、重要な単語を20個抽出し、日本語の意味を問う4択問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "word": "中国語の単語（漢字）",
+      "options": ["正しい日本語の意味", "誤った意味1", "誤った意味2", "誤った意味3"],
+      "correct": 0,
+      "explanation": "ピンイン: [発音] / 用法や例文"
+    }
+  ]
+}`;
+                } else {
+                    vocabInstruction = `この${subjectNames[subject]}の教科書画像を見て、重要な単語・用語を20個抽出し、4択問題を作成してください。
 
 必ずJSON形式のみで以下のように出力してください：
 {
   "questions": [
     {
       "word": "単語",
-      "options": ["正解", "不正解1", "不正解2", "不正解3"],
+      "options": ["正解の意味", "不正解1", "不正解2", "不正解3"],
       "correct": 0,
       "explanation": "詳しい解説"
     }
   ]
-}
-
-20問作成してください。`;
+}`;
+                }
+                
+                prompt = vocabInstruction + '\n\n20問作成してください。';
                 break;
                 
             case 'word-order':
@@ -358,24 +375,102 @@ async function generateQuizFromImage(quizType) {
                 break;
                 
             case 'translation':
-                prompt = `この${subjectNames[subject]}の教科書画像を見て、重要な文章を20個選び、翻訳問題を作成してください。
+                let translationInstruction = '';
+                if (subject === 'chinese') {
+                    translationInstruction = `この中国語の教科書画像を見て、重要な中国語の文章や単語を20個選び、日本語への翻訳問題を作成してください。
+
+重要：
+- question: 中国語の文章または単語（漢字）
+- answer: 日本語の意味・翻訳
+- ピンインは explanation に含める
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "question": "中国語の文章（漢字）",
+      "answer": "日本語の意味・翻訳",
+      "explanation": "ピンイン: [発音] / 詳しい解説"
+    }
+  ]
+}`;
+                } else if (subject === 'english') {
+                    translationInstruction = `この英語の教科書画像を見て、重要な英文を20個選び、日本語への翻訳問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "question": "英文",
+      "answer": "日本語訳",
+      "explanation": "翻訳のポイント・文法解説"
+    }
+  ]
+}`;
+                } else {
+                    translationInstruction = `この${subjectNames[subject]}の教科書画像を見て、重要な文章を20個選び、翻訳問題を作成してください。
 
 必ずJSON形式のみで以下のように出力してください：
 {
   "questions": [
     {
       "question": "翻訳する文章",
-      "answer": "模範解答",
+      "answer": "翻訳（日本語または元の言語）",
       "explanation": "翻訳のポイント"
     }
   ]
-}
-
-20問作成してください。`;
+}`;
+                }
+                
+                prompt = translationInstruction + '\n\n20問作成してください。';
                 break;
                 
             case 'reading':
-                prompt = `この${subjectNames[subject]}の教科書画像を見て、重要な単語を20個選び、発音・アクセント問題を作成してください。
+                let readingInstruction = '';
+                if (subject === 'chinese') {
+                    readingInstruction = `この中国語の教科書画像を見て、重要な単語を20個選び、ピンイン（発音）の4択問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "word": "中国語の単語（漢字）",
+      "options": ["正しいピンイン", "誤ったピンイン1", "誤ったピンイン2", "誤ったピンイン3"],
+      "correct": 0,
+      "explanation": "声調やピンインの解説"
+    }
+  ]
+}`;
+                } else if (subject === 'english') {
+                    readingInstruction = `この英語の教科書画像を見て、重要な単語を20個選び、発音記号の4択問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "word": "英単語",
+      "options": ["正しい発音記号", "誤った発音1", "誤った発音2", "誤った発音3"],
+      "correct": 0,
+      "explanation": "発音のポイント・アクセント"
+    }
+  ]
+}`;
+                } else if (subject === 'japanese') {
+                    readingInstruction = `この日本語の教科書画像を見て、重要な漢字を20個選び、読み方の4択問題を作成してください。
+
+必ずJSON形式のみで以下のように出力してください：
+{
+  "questions": [
+    {
+      "word": "漢字",
+      "options": ["正しい読み方", "誤った読み1", "誤った読み2", "誤った読み3"],
+      "correct": 0,
+      "explanation": "音読み・訓読みの解説"
+    }
+  ]
+}`;
+                } else {
+                    readingInstruction = `この${subjectNames[subject]}の教科書画像を見て、重要な単語を20個選び、発音・アクセント問題を作成してください。
 
 必ずJSON形式のみで以下のように出力してください：
 {
@@ -387,9 +482,10 @@ async function generateQuizFromImage(quizType) {
       "explanation": "発音のポイント"
     }
   ]
-}
-
-20問作成してください。`;
+}`;
+                }
+                
+                prompt = readingInstruction + '\n\n20問作成してください。';
                 break;
         }
         
